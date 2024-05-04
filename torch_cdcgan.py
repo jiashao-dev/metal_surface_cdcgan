@@ -253,7 +253,6 @@ for epoch in range(opt.n_epochs):
 
         gen_labels = F.one_hot(torch.arange(opt.n_classes, device=device), opt.n_classes)[labels].float()
 
-       
         # Generate a batch of images
         gen_imgs = generator(z, gen_labels)
 
@@ -317,28 +316,8 @@ imgs, labels = next(iter(dataloader))
 selected_imgs = imgs[:9]
 selected_labels = F.one_hot(torch.arange(opt.n_classes, device=device), opt.n_classes)[labels[:9]].float()
 
-
 grid = make_grid(selected_imgs, nrow=3)
 save_image(grid, path_to_save_result + "/original.png", normalize=True)
-
-# generated_imgs = []
-# for i in range(0, 9):
-#     z = torch.tensor(
-#         np.random.normal(0, 1, (1 ** 2, opt.latent_dim)),
-#         dtype=torch.float32,
-#         device=device
-#     )
-    
-#     gen_label = selected_labels[i].view(1, -1)
-#     gen_img = generator(z, gen_label)
-
-#     save_image(gen_img.data, path_to_save_result + "/%d.png" % (i+1), normalize=True)
-
-#     generated_imgs.append(gen_img.data.squeeze(0))
-
-## collage generated individual images
-# grid_generated = make_grid(generated_imgs, nrow=3)
-# save_image(grid_generated, path_to_save_result + "/fake.png", normalize=True)
 
 z = torch.tensor(
     np.random.normal(0, 1, (3 ** 2, opt.latent_dim)),
@@ -347,7 +326,10 @@ z = torch.tensor(
 )
 
 generated_imgs = generator(z, selected_labels)
-save_image(generated_imgs.data, path_to_save_result + "/fake.png", normalize=True)
+save_image(generated_imgs.data, path_to_save_result + "/fake.png", nrow=3, normalize=True)
+
+for i, img in enumerate(generated_imgs):
+    save_image(img.data, path_to_save_result + "/%d.png" % (i+1), normalize=True)
 
 print("----------------------------\n\n")
 
