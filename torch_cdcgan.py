@@ -25,7 +25,6 @@ parser.add_argument("--batch_size", type=int, default=64, help="size of the batc
 parser.add_argument("--lr", type=float, default=0.002, help="adam: learning rate")
 parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
-parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
 parser.add_argument("--latent_dim", type=int, default=100, help="dimensionality of the latent space")
 parser.add_argument("--n_classes", type=int, default=6, help="number of classes")
 parser.add_argument("--img_size", type=int, default=128, help="size of each image dimension")
@@ -184,8 +183,8 @@ print(dataset)
 print("----------------------------\n\n")
 
 # Optimizers
-optimizer_generator = torch.optim.Adam(generator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
-optimizer_discriminator = torch.optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
+optimizer_generator = torch.optim.Adam(generator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2), eps=0.1)
+optimizer_discriminator = torch.optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2), eps=0.1)
 
 
 # Print model summary
@@ -288,7 +287,7 @@ for epoch in range(opt.n_epochs):
         optimizer_discriminator.step()
 
         print(
-            "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f]"
+            "[Epoch %04d/%04d] [Batch %02d/%02d] [D loss: %f] [G loss: %f]"
             % (epoch+1, opt.n_epochs, i+1, len(dataloader), d_loss.item(), g_loss.item())
         )
 
@@ -322,25 +321,33 @@ selected_labels = F.one_hot(torch.arange(opt.n_classes, device=device), opt.n_cl
 grid = make_grid(selected_imgs, nrow=3)
 save_image(grid, path_to_save_result + "/original.png", normalize=True)
 
-generated_imgs = []
-for i in range(0, 9):
-    z = torch.tensor(
-        np.random.normal(0, 1, (1 ** 2, opt.latent_dim)),
-        dtype=torch.float32,
-        device=device
-    )
+# generated_imgs = []
+# for i in range(0, 9):
+#     z = torch.tensor(
+#         np.random.normal(0, 1, (1 ** 2, opt.latent_dim)),
+#         dtype=torch.float32,
+#         device=device
+#     )
     
-    gen_label = selected_labels[i].view(1, -1)
-    gen_img = generator(z, gen_label)
+#     gen_label = selected_labels[i].view(1, -1)
+#     gen_img = generator(z, gen_label)
 
-    save_image(gen_img.data, path_to_save_result + "/%d.png" % (i+1), normalize=True)
+#     save_image(gen_img.data, path_to_save_result + "/%d.png" % (i+1), normalize=True)
 
-    generated_imgs.append(gen_img.data.squeeze(0))
+#     generated_imgs.append(gen_img.data.squeeze(0))
 
 ## collage generated individual images
-grid_generated = make_grid(generated_imgs, nrow=3)
-save_image(grid_generated, path_to_save_result + "/fake.png", normalize=True)
+# grid_generated = make_grid(generated_imgs, nrow=3)
+# save_image(grid_generated, path_to_save_result + "/fake.png", normalize=True)
 
+z = torch.tensor(
+    np.random.normal(0, 1, (3 ** 2, opt.latent_dim)),
+    dtype=torch.float32,
+    device=device
+)
+
+generated_imgs = generator(z, selected_labels)
+save_image(generated_imgs.data, path_to_save_result + "/fake.png", normalize=True)
 
 print("----------------------------\n\n")
 
