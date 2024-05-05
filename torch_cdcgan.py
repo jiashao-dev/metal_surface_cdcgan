@@ -30,6 +30,7 @@ parser.add_argument("--n_classes", type=int, default=6, help="number of classes"
 parser.add_argument("--img_size", type=int, default=128, help="size of each image dimension")
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=500, help="interval between image sampling")
+parser.add_argument("--init_size", type=int, default=4, help="generator initial size")
 opt = parser.parse_args()
 
 print("----------------------------")
@@ -61,9 +62,8 @@ class Generator(nn.Module):
             block.append(nn.ReLU(inplace=True))
             return block
 
-        self.init_size = 8
         self.l1 = nn.Sequential(
-            nn.Linear(opt.latent_dim + opt.n_classes, 128 * self.init_size ** 2)
+            nn.Linear(opt.latent_dim + opt.n_classes, 128 * opt.init_size ** 2)
         )
 
         self.conv_blocks = nn.Sequential(
@@ -72,15 +72,16 @@ class Generator(nn.Module):
             *generator_block(128, 64, True),
             *generator_block(64, 32, True),
             *generator_block(32, 16, True),
+            *generator_block(16, 8, True),
 
-            nn.ConvTranspose2d(16, 1, 3, 2, 1, 1),
+            nn.ConvTranspose2d(8, 1, 3, 2, 1, 1),
             nn.Tanh(),
         )
     
     def forward(self, input, label):
         input = torch.concat([input, label], dim=1)
         out = self.l1(input)
-        out = out.view(out.shape[0], 128, self.init_size, self.init_size)
+        out = out.view(out.shape[0], 128, opt.init_size, opt.init_size)
         img = self.conv_blocks(out)
         return img
     
@@ -104,16 +105,16 @@ class Discriminator(nn.Module):
             return block
         
         self.model = nn.Sequential(
-            *discriminator_block(opt.channels + 1, 16, bn=False),
+            *discriminator_block(opt.channels + 1, 8, bn=False),
+            *discriminator_block(8, 16),
             *discriminator_block(16, 32),
             *discriminator_block(32, 64),
             *discriminator_block(64, 128),
             nn.Flatten(),
         )
 
-        ds_size = 8
         self.adv_layer = nn.Sequential(
-            nn.Linear(128 * ds_size ** 2, 1), 
+            nn.Linear(128 * opt.init_size ** 2, 1), 
             nn.Sigmoid()
         )
 
@@ -183,8 +184,8 @@ print(dataset)
 print("----------------------------\n\n")
 
 # Optimizers
-optimizer_generator = torch.optim.Adam(generator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2), eps=0.1)
-optimizer_discriminator = torch.optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2), eps=0.1)
+optimizer_generator = torch.optim.Adam(generator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
+optimizer_discriminator = torch.optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
 
 
 # Print model summary
@@ -204,16 +205,14 @@ imgs = torch.rand(size=(1, 1, opt.img_size, opt.img_size), device=device)
 summary(discriminator, imgs, lbl)
 print("----------------------------\n\n")
 
-current_time_str = time.strftime("%Y%m%d-%H%M%S")
-path_to_generate = "./generate/%s/all/%s" % (dataset_sample, current_time_str)
-
-os.makedirs(path_to_generate, exist_ok=True)
-
-
 print("----------------------------")
 print("          Training")
 print("----------------------------\n")
 
+current_time_str = time.strftime("%Y%m%d-%H%M%S")
+path_to_generate = "./generate/%s/all/%s" % (dataset_sample, current_time_str)
+
+os.makedirs(path_to_generate, exist_ok=True)
 
 start = time.time()
 for epoch in range(opt.n_epochs):
