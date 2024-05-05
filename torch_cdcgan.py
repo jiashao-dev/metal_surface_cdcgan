@@ -19,8 +19,12 @@ import torch.nn.functional as F
 cuda = torch.cuda.is_available()
 device = 'cuda' if cuda else 'cpu'
 
+print("----------------------------")
+print("         Parameter")
+print("----------------------------\n")
+
 parser = argparse.ArgumentParser()
-parser.add_argument("--n_epochs", type=int, default=1000, help="number of epochs of training")
+parser.add_argument("--n_epochs", type=int, default=1500, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.002, help="adam: learning rate")
 parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
@@ -30,13 +34,11 @@ parser.add_argument("--n_classes", type=int, default=6, help="number of classes"
 parser.add_argument("--img_size", type=int, default=128, help="size of each image dimension")
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=500, help="interval between image sampling")
-parser.add_argument("--init_size", type=int, default=4, help="generator initial size")
-opt = parser.parse_args()
+parser.add_argument("--init_size", type=int, default=8, help="generator initial size")
 
-print("----------------------------")
-print("         Parameter")
-print("----------------------------\n")
+opt = parser.parse_args()
 print(opt)
+
 print("----------------------------\n\n")
 
 
@@ -63,18 +65,17 @@ class Generator(nn.Module):
             return block
 
         self.l1 = nn.Sequential(
-            nn.Linear(opt.latent_dim + opt.n_classes, 128 * opt.init_size ** 2)
+            nn.Linear(opt.latent_dim + opt.n_classes, 128 * opt.init_size ** 2),
         )
 
         self.conv_blocks = nn.Sequential(
             nn.BatchNorm2d(128),
-            
+
             *generator_block(128, 64, True),
             *generator_block(64, 32, True),
             *generator_block(32, 16, True),
-            *generator_block(16, 8, True),
 
-            nn.ConvTranspose2d(8, 1, 3, 2, 1, 1),
+            nn.ConvTranspose2d(16, 1, 3, 2, 1, 1),
             nn.Tanh(),
         )
     
@@ -105,8 +106,7 @@ class Discriminator(nn.Module):
             return block
         
         self.model = nn.Sequential(
-            *discriminator_block(opt.channels + 1, 8, bn=False),
-            *discriminator_block(8, 16),
+            *discriminator_block(opt.channels + 1, 16, bn=False),
             *discriminator_block(16, 32),
             *discriminator_block(32, 64),
             *discriminator_block(64, 128),
@@ -138,8 +138,6 @@ def sample_image(n_row, batches_done, labels, path_to_generate):
     gen_imgs = generator(z, gen_labels)
     save_image(gen_imgs.data, path_to_generate + "/%d.png" % batches_done, nrow=n_row, normalize=True)
 
-# def train_generator(real_inputs, real_labels):
-    
 dataset_sample = "metal_surface"
 
 # Loss function
@@ -223,15 +221,16 @@ for epoch in range(opt.n_epochs):
         batch_size = imgs.shape[0]
 
         # Adversarial ground truths
+        # apply label smoothing
         valid = torch.tensor(
-            data=[[1.0]] * batch_size,
+            data=[[0.9]] * batch_size,
             dtype=torch.float32,
             device=device,
             requires_grad=False
         )
 
         fake = torch.tensor(
-            data=[[0.0]] * batch_size,
+            data=[[0.1]] * batch_size,
             dtype=torch.float32,
             device=device,
             requires_grad=False
