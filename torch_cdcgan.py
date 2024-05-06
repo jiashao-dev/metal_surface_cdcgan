@@ -304,7 +304,7 @@ print("----------------------------")
 print("         Evaluation")
 print("----------------------------\n")
 
-path_to_save_result = "./result/%s/%s/" % (opt.dataset_sample, current_time_str)
+path_to_save_result = "./result/%s/%s/" % (current_time_str, opt.dataset_sample)
 
 for i, class_name in enumerate(["Crazing", "Inclusion", "Patches", "Pitted", "Rolled", "Scratches"]):
     os.makedirs(path_to_save_result + class_name, exist_ok=True)
