@@ -6,7 +6,7 @@ import numpy as np
 import torchvision.transforms as transforms
 from torchvision.utils import save_image, make_grid
 
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from torchvision import datasets
 
 import torch.nn as nn
@@ -24,6 +24,7 @@ print("         Parameter")
 print("----------------------------\n")
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--dataset_sample", type=str, default="metal_surface", help="dataset to be used")
 parser.add_argument("--n_epochs", type=int, default=1500, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.002, help="adam: learning rate")
@@ -138,8 +139,6 @@ def sample_image(n_row, batches_done, labels, path_to_generate):
     gen_imgs = generator(z, gen_labels)
     save_image(gen_imgs.data, path_to_generate + "/%d.png" % batches_done, nrow=n_row, normalize=True)
 
-dataset_sample = "metal_surface"
-
 # Loss function
 adversarial_loss = torch.nn.BCELoss()
 
@@ -156,9 +155,13 @@ if cuda:
 generator.apply(weights_init_normal)
 discriminator.apply(weights_init_normal)
 
+print("----------------------------")
+print("      Dataset Summary")
+print("----------------------------\n")
+
 # Configure data loader
 dataset = datasets.ImageFolder(
-    "./data/%s/" % (dataset_sample),
+    "./data/%s/" % (opt.dataset_sample),
     transform=transforms.Compose(
         [
             transforms.Resize(opt.img_size),
@@ -175,9 +178,6 @@ dataloader = DataLoader(
     shuffle=True
 )
 
-print("----------------------------")
-print("      Dataset Summary")
-print("----------------------------\n")
 print(dataset)
 print("----------------------------\n\n")
 
@@ -208,7 +208,7 @@ print("          Training")
 print("----------------------------\n")
 
 current_time_str = time.strftime("%Y%m%d-%H%M%S")
-path_to_generate = "./generate/%s/all/%s" % (dataset_sample, current_time_str)
+path_to_generate = "./generate/%s/all/%s" % (opt.dataset_sample, current_time_str)
 
 os.makedirs(path_to_generate, exist_ok=True)
 
@@ -292,7 +292,7 @@ for epoch in range(opt.n_epochs):
         if (batches_done % opt.sample_interval == 0):
             sample_image(3, batches_done, gen_labels, path_to_generate)
 
-path_to_save_model = "./model/%s/all" % (dataset_sample)
+path_to_save_model = "./model/%s/all" % (opt.dataset_sample)
 os.makedirs(path_to_save_model, exist_ok=True)
 
 torch.save(generator, "%s/%s.h5" % (path_to_save_model, current_time_str))
@@ -304,30 +304,36 @@ print("----------------------------")
 print("         Evaluation")
 print("----------------------------\n")
 
-path_to_save_result = "./result/%s/all/%s" % (dataset_sample, current_time_str)
+path_to_save_result = "./result/%s/%s/" % (opt.dataset_sample, current_time_str)
 
-os.makedirs(path_to_save_result, exist_ok=True)
+for i, class_name in enumerate(["Crazing", "Inclusion", "Patches", "Pitted", "Rolled", "Scratches"]):
+    os.makedirs(path_to_save_result + class_name, exist_ok=True)
+    
+    indices = [idx for idx, target in enumerate(dataset.targets) if target == i]
 
-## randomly choose 9 original image and collage them to ease comparison
-imgs, labels = next(iter(dataloader))
+    dataloader = DataLoader(
+        Subset(dataset, indices),
+        batch_size=9,
+        shuffle=True
+    )
 
-selected_imgs = imgs[:9]
-selected_labels = F.one_hot(torch.arange(opt.n_classes, device=device), opt.n_classes)[labels[:9]].float()
+    imgs, labels = next(iter(dataloader))
+    grid = make_grid(imgs, nrow=3)
+    save_image(grid, path_to_save_result + "%s/original.png" % (class_name), normalize=True)
 
-grid = make_grid(selected_imgs, nrow=3)
-save_image(grid, path_to_save_result + "/original.png", normalize=True)
+    z = torch.tensor(
+        np.random.normal(0, 1, (3 ** 2, opt.latent_dim)),
+        dtype=torch.float32,
+        device=device
+    )
 
-z = torch.tensor(
-    np.random.normal(0, 1, (3 ** 2, opt.latent_dim)),
-    dtype=torch.float32,
-    device=device
-)
+    labels = F.one_hot(torch.arange(6, device='cuda'), 6)[labels].float()
 
-generated_imgs = generator(z, selected_labels)
-save_image(generated_imgs.data, path_to_save_result + "/fake.png", nrow=3, normalize=True)
+    gen_imgs = generator(z, labels)
+    save_image(gen_imgs.data, path_to_save_result + "%s/fake.png" % (class_name), nrow=3, normalize=True)
 
-for i, img in enumerate(generated_imgs):
-    save_image(img.data, path_to_save_result + "/%d.png" % (i+1), normalize=True)
+    for j, gen_img in enumerate(gen_imgs):
+        save_image(gen_img.data, path_to_save_result + "%s/%d.png" % (class_name, j+1), normalize=True)
 
 print("----------------------------\n\n")
 
