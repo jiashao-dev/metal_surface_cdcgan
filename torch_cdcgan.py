@@ -32,7 +32,7 @@ parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first 
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--latent_dim", type=int, default=100, help="dimensionality of the latent space")
 parser.add_argument("--n_classes", type=int, default=6, help="number of classes")
-parser.add_argument("--img_size", type=int, default=128, help="size of each image dimension")
+parser.add_argument("--img_size", type=int, default=256, help="size of each image dimension")
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=500, help="interval between image sampling")
 parser.add_argument("--init_size", type=int, default=8, help="generator initial size")
@@ -66,12 +66,13 @@ class Generator(nn.Module):
             return block
 
         self.l1 = nn.Sequential(
-            nn.Linear(opt.latent_dim + opt.n_classes, 128 * opt.init_size ** 2),
+            nn.Linear(opt.latent_dim + opt.n_classes, 256 * opt.init_size ** 2),
         )
 
         self.conv_blocks = nn.Sequential(
-            nn.BatchNorm2d(128),
+            nn.BatchNorm2d(256),
 
+            *generator_block(256, 128, True),
             *generator_block(128, 64, True),
             *generator_block(64, 32, True),
             *generator_block(32, 16, True),
@@ -83,7 +84,7 @@ class Generator(nn.Module):
     def forward(self, input, label):
         input = torch.concat([input, label], dim=1)
         out = self.l1(input)
-        out = out.view(out.shape[0], 128, opt.init_size, opt.init_size)
+        out = out.view(out.shape[0], 256, opt.init_size, opt.init_size)
         img = self.conv_blocks(out)
         return img
     
@@ -92,7 +93,7 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
 
         self.linear = nn.Sequential(
-            nn.Linear(opt.n_classes, 128*128*1),
+            nn.Linear(opt.n_classes, opt.img_size * opt.img_size * 1),
             nn.LeakyReLU()
         )
 
@@ -111,11 +112,12 @@ class Discriminator(nn.Module):
             *discriminator_block(16, 32),
             *discriminator_block(32, 64),
             *discriminator_block(64, 128),
+            *discriminator_block(128, 256),
             nn.Flatten(),
         )
 
         self.adv_layer = nn.Sequential(
-            nn.Linear(128 * opt.init_size ** 2, 1), 
+            nn.Linear(256 * opt.init_size ** 2, 1), 
             nn.Sigmoid()
         )
 
@@ -127,16 +129,18 @@ class Discriminator(nn.Module):
         return validity
     
 # get and store generated images
-def sample_image(n_row, batches_done, labels, path_to_generate):
+def sample_image(n_row, batches_done, path_to_generate):
     # Sample noise
     z = torch.tensor(
-        np.random.normal(0, 1, (n_row ** 2, opt.latent_dim)),
+        np.random.normal(0, 1, (n_row * opt.n_classes, opt.latent_dim)),
         dtype=torch.float32,
         device=device
     )
     
-    gen_labels = labels[:n_row ** 2]
-    gen_imgs = generator(z, gen_labels)
+    labels = [i // 9 for i in range(54)]
+    labels = F.one_hot(torch.arange(6, device="cuda"), 6)[labels].float()
+
+    gen_imgs = generator(z, labels)
     save_image(gen_imgs.data, path_to_generate + "/%d.png" % batches_done, nrow=n_row, normalize=True)
 
 # Loss function
@@ -164,7 +168,6 @@ dataset = datasets.ImageFolder(
     "./data/%s/" % (opt.dataset_sample),
     transform=transforms.Compose(
         [
-            transforms.Resize(opt.img_size),
             transforms.Grayscale(),
             transforms.ToTensor(), 
             transforms.Normalize([0.5], [0.5])
@@ -290,7 +293,7 @@ for epoch in range(opt.n_epochs):
 
         batches_done = epoch * len(dataloader) + i
         if (batches_done % opt.sample_interval == 0):
-            sample_image(3, batches_done, gen_labels, path_to_generate)
+            sample_image(9, batches_done, path_to_generate)
 
 path_to_save_model = "./model/%s/all" % (opt.dataset_sample)
 os.makedirs(path_to_save_model, exist_ok=True)
