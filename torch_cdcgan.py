@@ -16,6 +16,10 @@ from torchsummary import summary
 
 import torch.nn.functional as F
 
+from torchmetrics.image.fid import FrechetInceptionDistance as FID
+
+fid = FID(192)
+
 cuda = torch.cuda.is_available()
 device = 'cuda' if cuda else 'cpu'
 
@@ -32,7 +36,7 @@ parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first 
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--latent_dim", type=int, default=100, help="dimensionality of the latent space")
 parser.add_argument("--n_classes", type=int, default=6, help="number of classes")
-parser.add_argument("--img_size", type=int, default=256, help="size of each image dimension")
+parser.add_argument("--img_size", type=int, default=128, help="size of each image dimension")
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=500, help="interval between image sampling")
 parser.add_argument("--init_size", type=int, default=8, help="generator initial size")
@@ -66,25 +70,32 @@ class Generator(nn.Module):
             return block
 
         self.l1 = nn.Sequential(
-            nn.Linear(opt.latent_dim + opt.n_classes, 256 * opt.init_size ** 2),
+            nn.Linear(opt.latent_dim + opt.n_classes, 512 * opt.init_size ** 2),
         )
 
         self.conv_blocks = nn.Sequential(
-            nn.BatchNorm2d(256),
+            nn.BatchNorm2d(512),
 
-            *generator_block(256, 128, True),
-            *generator_block(128, 64, True),
-            *generator_block(64, 32, True),
-            *generator_block(32, 16, True),
+            nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(256, 0.8),
+            nn.ReLU(inplace=True),
 
-            nn.ConvTranspose2d(16, 1, 3, 2, 1, 1),
+            nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(128, 0.8),
+            nn.ReLU(inplace=True),
+
+            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(64, 0.8),
+            nn.ReLU(inplace=True),
+
+            nn.ConvTranspose2d(64, 1, 3, 2, 1, 1),
             nn.Tanh(),
         )
     
     def forward(self, input, label):
         input = torch.concat([input, label], dim=1)
         out = self.l1(input)
-        out = out.view(out.shape[0], 256, opt.init_size, opt.init_size)
+        out = out.view(out.shape[0], 512, opt.init_size, opt.init_size)
         img = self.conv_blocks(out)
         return img
     
@@ -101,23 +112,37 @@ class Discriminator(nn.Module):
             block = [
                 nn.Conv2d(in_filters, out_filters, 3, 2, 1), 
                 nn.LeakyReLU(0.2, inplace=True), 
-                nn.Dropout2d(0.25)
+                # nn.Dropout2d(0.25)
             ]
             if bn:
                 block.append(nn.BatchNorm2d(out_filters, 0.8))
             return block
         
         self.model = nn.Sequential(
-            *discriminator_block(opt.channels + 1, 16, bn=False),
-            *discriminator_block(16, 32),
-            *discriminator_block(32, 64),
-            *discriminator_block(64, 128),
-            *discriminator_block(128, 256),
-            nn.Flatten(),
+            nn.Conv2d(opt.channels + 1, 64, 3, 2, 1), 
+            nn.LeakyReLU(0.2, inplace=True), 
+            # nn.Dropout2d(0.25),
+
+            nn.Conv2d(64, 128, 3, 2, 1), 
+            nn.LeakyReLU(0.2, inplace=True), 
+            # nn.Dropout2d(0.25),
+            nn.BatchNorm2d(128, 0.8),
+
+            nn.Conv2d(128, 256, 3, 2, 1), 
+            nn.LeakyReLU(0.2, inplace=True), 
+            # nn.Dropout2d(0.25),
+            nn.BatchNorm2d(256, 0.8),
+
+            nn.Conv2d(256, 512, 3, 2, 1), 
+            nn.LeakyReLU(0.2, inplace=True), 
+            # nn.Dropout2d(0.25),
+            nn.BatchNorm2d(512, 0.8),
+
+            nn.Flatten()
         )
 
         self.adv_layer = nn.Sequential(
-            nn.Linear(256 * opt.init_size ** 2, 1), 
+            nn.Linear(512 * opt.init_size ** 2, 1), 
             nn.Sigmoid()
         )
 
@@ -128,20 +153,34 @@ class Discriminator(nn.Module):
         validity = self.adv_layer(out)
         return validity
     
-# get and store generated images
-def sample_image(n_row, batches_done, path_to_generate):
-    # Sample noise
-    z = torch.tensor(
-        np.random.normal(0, 1, (n_row * opt.n_classes, opt.latent_dim)),
-        dtype=torch.float32,
-        device=device
-    )
-    
-    labels = [i // 9 for i in range(54)]
-    labels = F.one_hot(torch.arange(6, device="cuda"), 6)[labels].float()
+# Fixed sample noise
+fixed_noise = torch.tensor(
+    np.random.normal(0, 1, (9 * opt.n_classes, opt.latent_dim)),
+    dtype=torch.float32,
+    device=device
+)
 
-    gen_imgs = generator(z, labels)
-    save_image(gen_imgs.data, path_to_generate + "/%d.png" % batches_done, nrow=n_row, normalize=True)
+fixed_labels = [i // 9 for i in range(54)]
+fixed_labels = F.one_hot(torch.arange(6, device="cuda"), 6)[fixed_labels].float()
+
+# get and store generated images
+def sample_image(path_to_generate):
+    gen_imgs = generator(fixed_noise, fixed_labels)
+    save_image(gen_imgs.data, path_to_generate, nrow=9, normalize=True)
+    return gen_imgs
+
+def interpolation(imgs):
+    arr = []
+    for img in imgs:
+        img = transforms.ToPILImage()(img)
+        img = transforms.Compose([
+            transforms.Resize((299, 299)),
+            transforms.Grayscale(3),
+            transforms.ToTensor()
+        ])(img)
+        arr.append((img * 255).to(dtype=torch.uint8))
+
+    return torch.stack(arr)
 
 # Loss function
 adversarial_loss = torch.nn.BCELoss()
@@ -168,6 +207,7 @@ dataset = datasets.ImageFolder(
     "./data/%s/" % (opt.dataset_sample),
     transform=transforms.Compose(
         [
+            transforms.Resize(opt.img_size),
             transforms.Grayscale(),
             transforms.ToTensor(), 
             transforms.Normalize([0.5], [0.5])
@@ -218,10 +258,14 @@ os.makedirs(path_to_generate, exist_ok=True)
 start = time.time()
 for epoch in range(opt.n_epochs):
     for i, (imgs, labels) in enumerate(dataloader):
-        generator.train(True)
-        discriminator.train(True)
+        generator.train()
+        discriminator.train()
 
+        # Configure input
         batch_size = imgs.shape[0]
+        real_imgs = imgs.clone().detach().to(device=device, dtype=torch.float32)
+        gen_labels = labels.clone().detach().to(device=device, dtype=torch.long)
+        gen_labels = F.one_hot(torch.arange(opt.n_classes, device=device), opt.n_classes)[gen_labels].float()
 
         # Adversarial ground truths
         # apply label smoothing
@@ -238,21 +282,37 @@ for epoch in range(opt.n_epochs):
             device=device,
             requires_grad=False
         )
-        
-        # Configure input
-        real_imgs = imgs.clone().detach().to(device=device, dtype=torch.float32)
-        labels = labels.clone().detach().to(device=device, dtype=torch.long)
 
-        # ----------- Train Generator -----------
+        # -------- Train Discriminator --------
+        optimizer_discriminator.zero_grad()
 
-        # Sample noise as generator input
+        ## measure discriminator's ability to classify real from generated samples
+
+        # Loss for real images
+        validity_real = discriminator(real_imgs, gen_labels)
+        d_real_loss = adversarial_loss(validity_real, valid)
+        d_real_loss.backward()
+
+        # Loss for fake images
         z = torch.tensor(
             data=np.random.normal(0, 1, (batch_size, opt.latent_dim)),
             dtype=torch.float32,
             device=device
         )
 
-        gen_labels = F.one_hot(torch.arange(opt.n_classes, device=device), opt.n_classes)[labels].float()
+        gen_imgs = generator(z, gen_labels)
+
+        validity_fake = discriminator(gen_imgs.detach(), gen_labels)
+        d_fake_loss = adversarial_loss(validity_fake, fake)
+        d_fake_loss.backward()
+
+        d_loss = d_real_loss + d_fake_loss
+
+        optimizer_discriminator.step()
+
+
+        # ----------- Train Generator -----------
+        optimizer_generator.zero_grad()
 
         # Generate a batch of images
         gen_imgs = generator(z, gen_labels)
@@ -260,40 +320,22 @@ for epoch in range(opt.n_epochs):
         # Loss measures generator's ability to fool the discriminator
         validity = discriminator(gen_imgs, gen_labels)
         g_loss = adversarial_loss(validity, valid)
-        
-        optimizer_generator.zero_grad()
-
         g_loss.backward()
         optimizer_generator.step()
 
-        # -------- Train Discriminator --------
 
-        ## measure discriminator's ability to classify real from generated samples
-
-        # Loss for real images
-        validity_real = discriminator(real_imgs, gen_labels)
-
-        # Loss for fake images
-        validity_fake = discriminator(gen_imgs.detach(), gen_labels)
-
-
-        outputs = torch.cat((validity_real, validity_fake), 0)
-        targets = torch.cat((valid, fake), 0)
-
-        optimizer_discriminator.zero_grad()
-
-        d_loss = adversarial_loss(outputs, targets)
-        d_loss.backward()
-        optimizer_discriminator.step()
-
-        print(
-            "[Epoch %04d/%04d] [Batch %02d/%02d] [D loss: %f] [G loss: %f]"
-            % (epoch+1, opt.n_epochs, i+1, len(dataloader), d_loss.item(), g_loss.item())
-        )
+        summary_statistics = "[Epoch %04d/%04d] [Batch %02d/%02d] [D loss: %.4f] [G loss: %.4f]" % (epoch+1, opt.n_epochs, i+1, len(dataloader), d_loss.item(), g_loss.item())
 
         batches_done = epoch * len(dataloader) + i
         if (batches_done % opt.sample_interval == 0):
-            sample_image(9, batches_done, path_to_generate)
+            sample_image(path_to_generate + "/%d.png" % batches_done)
+            fid.update(interpolation(real_imgs), real=True)
+            fid.update(interpolation(gen_imgs), real=False)
+            fid_score = fid.compute()
+            summary_statistics += " [FID: %.4f]" % fid_score
+            fid.reset()
+
+        print(summary_statistics)
 
 path_to_save_model = "./model/%s/all" % (opt.dataset_sample)
 os.makedirs(path_to_save_model, exist_ok=True)
@@ -332,11 +374,21 @@ for i, class_name in enumerate(["Crazing", "Inclusion", "Patches", "Pitted", "Ro
 
     labels = F.one_hot(torch.arange(6, device='cuda'), 6)[labels].float()
 
+    real_imgs = imgs.clone().detach().to(device=device, dtype=torch.float32)
     gen_imgs = generator(z, labels)
     save_image(gen_imgs.data, path_to_save_result + "%s/fake.png" % (class_name), nrow=3, normalize=True)
 
+
     for j, gen_img in enumerate(gen_imgs):
         save_image(gen_img.data, path_to_save_result + "%s/%d.png" % (class_name, j+1), normalize=True)
+
+    fid.update(interpolation(real_imgs), real=True)
+    fid.update(interpolation(gen_imgs), real=False)
+    result = fid.compute()
+
+    print("FID Score (%s): %.4f" % (class_name, result))
+
+    fid.reset()
 
 print("----------------------------\n\n")
 
