@@ -31,8 +31,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--dataset_sample", type=str, default="metal_surface", help="dataset to be used")
 parser.add_argument("--n_epochs", type=int, default=1500, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
-parser.add_argument("--lr", type=float, default=0.002, help="adam: learning rate")
-parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
+parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
+parser.add_argument("--b1", type=float, default=0.51, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--latent_dim", type=int, default=100, help="dimensionality of the latent space")
 parser.add_argument("--n_classes", type=int, default=6, help="number of classes")
@@ -107,35 +107,25 @@ class Discriminator(nn.Module):
             nn.Linear(opt.n_classes, opt.img_size * opt.img_size * 1),
             nn.LeakyReLU()
         )
-
-        def discriminator_block(in_filters, out_filters, bn=True):
-            block = [
-                nn.Conv2d(in_filters, out_filters, 3, 2, 1), 
-                nn.LeakyReLU(0.2, inplace=True), 
-                # nn.Dropout2d(0.25)
-            ]
-            if bn:
-                block.append(nn.BatchNorm2d(out_filters, 0.8))
-            return block
-        
+      
         self.model = nn.Sequential(
             nn.Conv2d(opt.channels + 1, 64, 3, 2, 1), 
             nn.LeakyReLU(0.2, inplace=True), 
-            # nn.Dropout2d(0.25),
+            nn.Dropout2d(0.25),
 
             nn.Conv2d(64, 128, 3, 2, 1), 
             nn.LeakyReLU(0.2, inplace=True), 
-            # nn.Dropout2d(0.25),
+            nn.Dropout2d(0.25),
             nn.BatchNorm2d(128, 0.8),
 
             nn.Conv2d(128, 256, 3, 2, 1), 
             nn.LeakyReLU(0.2, inplace=True), 
-            # nn.Dropout2d(0.25),
+            nn.Dropout2d(0.25),
             nn.BatchNorm2d(256, 0.8),
 
             nn.Conv2d(256, 512, 3, 2, 1), 
             nn.LeakyReLU(0.2, inplace=True), 
-            # nn.Dropout2d(0.25),
+            nn.Dropout2d(0.25),
             nn.BatchNorm2d(512, 0.8),
 
             nn.Flatten()
@@ -327,7 +317,7 @@ for epoch in range(opt.n_epochs):
         summary_statistics = "[Epoch %04d/%04d] [Batch %02d/%02d] [D loss: %.4f] [G loss: %.4f]" % (epoch+1, opt.n_epochs, i+1, len(dataloader), d_loss.item(), g_loss.item())
 
         batches_done = epoch * len(dataloader) + i
-        if (batches_done % opt.sample_interval == 0):
+        if ((epoch+1 == opt.n_epochs and i+1 == len(dataloader)) or (batches_done % opt.sample_interval == 0)):
             sample_image(path_to_generate + "/%d.png" % batches_done)
             fid.update(interpolation(real_imgs), real=True)
             fid.update(interpolation(gen_imgs), real=False)
@@ -349,46 +339,38 @@ print("----------------------------")
 print("         Evaluation")
 print("----------------------------\n")
 
-path_to_save_result = "./result/%s/%s/" % (current_time_str, opt.dataset_sample)
+path_to_save_result = "./result/%s/%s/" % (opt.dataset_sample, current_time_str)
 
-for i, class_name in enumerate(["Crazing", "Inclusion", "Patches", "Pitted", "Rolled", "Scratches"]):
-    os.makedirs(path_to_save_result + class_name, exist_ok=True)
-    
-    indices = [idx for idx, target in enumerate(dataset.targets) if target == i]
+os.makedirs(path_to_save_result, exist_ok=True)
 
-    dataloader = DataLoader(
-        Subset(dataset, indices),
-        batch_size=9,
-        shuffle=True
-    )
+batch_size = 9 * opt.n_classes
 
-    imgs, labels = next(iter(dataloader))
-    grid = make_grid(imgs, nrow=3)
-    save_image(grid, path_to_save_result + "%s/original.png" % (class_name), normalize=True)
+dataloader = DataLoader(
+    dataset,
+    batch_size=batch_size,
+    shuffle=True
+)
 
-    z = torch.tensor(
-        np.random.normal(0, 1, (3 ** 2, opt.latent_dim)),
-        dtype=torch.float32,
-        device=device
-    )
+noise = torch.tensor(
+    np.random.normal(0, 1, (batch_size, opt.latent_dim)),
+    dtype=torch.float32,
+    device=device
+)
 
-    labels = F.one_hot(torch.arange(6, device='cuda'), 6)[labels].float()
+real_imgs, real_labels = next(iter(dataloader))
+save_image(real_imgs, path_to_save_result + "real.png", nrow=9, normalize=True)
 
-    real_imgs = imgs.clone().detach().to(device=device, dtype=torch.float32)
-    gen_imgs = generator(z, labels)
-    save_image(gen_imgs.data, path_to_save_result + "%s/fake.png" % (class_name), nrow=3, normalize=True)
+real_labels = F.one_hot(torch.arange(6, device='cuda'), 6)[real_labels].float()
+gen_imgs = generator(noise, real_labels)
 
+save_image(gen_imgs.data, path_to_save_result + "fake.png", nrow=9, normalize=True)
 
-    for j, gen_img in enumerate(gen_imgs):
-        save_image(gen_img.data, path_to_save_result + "%s/%d.png" % (class_name, j+1), normalize=True)
+fid.update(interpolation(real_imgs), real=True)
+fid.update(interpolation(gen_imgs), real=False)
+result = fid.compute()
+fid.reset()
 
-    fid.update(interpolation(real_imgs), real=True)
-    fid.update(interpolation(gen_imgs), real=False)
-    result = fid.compute()
-
-    print("FID Score (%s): %.4f" % (class_name, result))
-
-    fid.reset()
+print("FID Score: %.4f" % (result))
 
 print("----------------------------\n\n")
 
