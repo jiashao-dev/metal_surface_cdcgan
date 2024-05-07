@@ -4,9 +4,9 @@ import time
 import numpy as np
 
 import torchvision.transforms as transforms
-from torchvision.utils import save_image, make_grid
+from torchvision.utils import save_image
 
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 from torchvision import datasets
 
 import torch.nn as nn
@@ -327,7 +327,7 @@ for epoch in range(opt.n_epochs):
 
         print(summary_statistics)
 
-path_to_save_model = "./model/%s/all" % (opt.dataset_sample)
+path_to_save_model = "./model/%s/" % (opt.dataset_sample)
 os.makedirs(path_to_save_model, exist_ok=True)
 
 torch.save(generator, "%s/%s.h5" % (path_to_save_model, current_time_str))
