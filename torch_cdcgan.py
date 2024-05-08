@@ -32,7 +32,7 @@ parser.add_argument("--dataset_sample", type=str, default="metal_surface", help=
 parser.add_argument("--n_epochs", type=int, default=1500, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
-parser.add_argument("--b1", type=float, default=0.51, help="adam: decay of first order momentum of gradient")
+parser.add_argument("--b1", type=float, default=0.52, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--latent_dim", type=int, default=100, help="dimensionality of the latent space")
 parser.add_argument("--n_classes", type=int, default=6, help="number of classes")
@@ -241,7 +241,7 @@ print("          Training")
 print("----------------------------\n")
 
 current_time_str = time.strftime("%Y%m%d-%H%M%S")
-path_to_generate = "./generate/%s/all/%s" % (opt.dataset_sample, current_time_str)
+path_to_generate = "./generate/%s/%s" % (opt.dataset_sample, current_time_str)
 
 os.makedirs(path_to_generate, exist_ok=True)
 
