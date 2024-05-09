@@ -29,10 +29,10 @@ print("----------------------------\n")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset_sample", type=str, default="metal_surface", help="dataset to be used")
-parser.add_argument("--n_epochs", type=int, default=1500, help="number of epochs of training")
+parser.add_argument("--n_epochs", type=int, default=1000, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
-parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
-parser.add_argument("--b1", type=float, default=0.52, help="adam: decay of first order momentum of gradient")
+parser.add_argument("--lr", type=float, default=0.0004, help="adam: learning rate")
+parser.add_argument("--b1", type=float, default=0.53, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--latent_dim", type=int, default=100, help="dimensionality of the latent space")
 parser.add_argument("--n_classes", type=int, default=6, help="number of classes")
@@ -58,16 +58,6 @@ def weights_init_normal(m):
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
-
-        def generator_block(in_filters, out_filters, bn=True):
-            block = [
-                nn.ConvTranspose2d(in_filters, out_filters, kernel_size=3, stride=2, padding=1, output_padding=1)
-            ]
-            if bn:
-                block.append(nn.BatchNorm2d(out_filters, 0.8))
-
-            block.append(nn.ReLU(inplace=True))
-            return block
 
         self.l1 = nn.Sequential(
             nn.Linear(opt.latent_dim + opt.n_classes, 512 * opt.init_size ** 2),
@@ -107,7 +97,7 @@ class Discriminator(nn.Module):
             nn.Linear(opt.n_classes, opt.img_size * opt.img_size * 1),
             nn.LeakyReLU()
         )
-      
+
         self.model = nn.Sequential(
             nn.Conv2d(opt.channels + 1, 64, 3, 2, 1), 
             nn.LeakyReLU(0.2, inplace=True), 
@@ -143,16 +133,6 @@ class Discriminator(nn.Module):
         validity = self.adv_layer(out)
         return validity
     
-# Fixed sample noise
-fixed_noise = torch.tensor(
-    np.random.normal(0, 1, (9 * opt.n_classes, opt.latent_dim)),
-    dtype=torch.float32,
-    device=device
-)
-
-fixed_labels = [i // 9 for i in range(54)]
-fixed_labels = F.one_hot(torch.arange(6, device="cuda"), 6)[fixed_labels].float()
-
 # get and store generated images
 def sample_image(path_to_generate):
     gen_imgs = generator(fixed_noise, fixed_labels)
@@ -244,6 +224,16 @@ current_time_str = time.strftime("%Y%m%d-%H%M%S")
 path_to_generate = "./generate/%s/%s" % (opt.dataset_sample, current_time_str)
 
 os.makedirs(path_to_generate, exist_ok=True)
+
+# Fixed sample noise
+fixed_noise = torch.tensor(
+    np.random.normal(0, 1, (9 * opt.n_classes, opt.latent_dim)),
+    dtype=torch.float32,
+    device=device
+)
+
+fixed_labels = [i // 9 for i in range(54)]
+fixed_labels = F.one_hot(torch.arange(6, device="cuda"), 6)[fixed_labels].float()
 
 start = time.time()
 for epoch in range(opt.n_epochs):
