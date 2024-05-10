@@ -32,7 +32,7 @@ parser.add_argument("--dataset_sample", type=str, default="metal_surface", help=
 parser.add_argument("--n_epochs", type=int, default=1000, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0004, help="adam: learning rate")
-parser.add_argument("--b1", type=float, default=0.53, help="adam: decay of first order momentum of gradient")
+parser.add_argument("--b1", type=float, default=0.52, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--latent_dim", type=int, default=100, help="dimensionality of the latent space")
 parser.add_argument("--n_classes", type=int, default=6, help="number of classes")
@@ -45,15 +45,6 @@ opt = parser.parse_args()
 print(opt)
 
 print("----------------------------\n\n")
-
-
-def weights_init_normal(m):
-    classname = m.__class__.__name__
-    if classname.find("Conv") != -1:
-        torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
-    elif classname.find("BatchNorm2d") != -1:
-        torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
-        torch.nn.init.constant_(m.bias.data, 0.0)
 
 class Generator(nn.Module):
     def __init__(self):
@@ -132,7 +123,15 @@ class Discriminator(nn.Module):
         out = self.model(out)
         validity = self.adv_layer(out)
         return validity
-    
+
+def weights_init_normal(m):
+    classname = m.__class__.__name__
+    if classname.find("Conv") != -1:
+        torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif classname.find("BatchNorm2d") != -1:
+        torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
+        torch.nn.init.constant_(m.bias.data, 0.0)
+
 # get and store generated images
 def sample_image(path_to_generate):
     gen_imgs = generator(fixed_noise, fixed_labels)
