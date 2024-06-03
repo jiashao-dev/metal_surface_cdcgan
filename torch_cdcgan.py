@@ -9,6 +9,8 @@ from torchvision.utils import save_image
 from torch.utils.data import DataLoader
 from torchvision import datasets
 
+from matplotlib import pyplot
+
 import torch.nn as nn
 import torch
 
@@ -29,7 +31,7 @@ print("----------------------------\n")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset_sample", type=str, default="metal_surface", help="dataset to be used")
-parser.add_argument("--n_epochs", type=int, default=1000, help="number of epochs of training")
+parser.add_argument("--n_epochs", type=int, default=1, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0004, help="adam: learning rate")
 parser.add_argument("--b1", type=float, default=0.52, help="adam: decay of first order momentum of gradient")
@@ -235,6 +237,9 @@ fixed_labels = [i // 9 for i in range(54)]
 fixed_labels = F.one_hot(torch.arange(6, device="cuda"), 6)[fixed_labels].float()
 
 start = time.time()
+
+d_losses = []
+g_losses = []
 for epoch in range(opt.n_epochs):
     for i, (imgs, labels) in enumerate(dataloader):
         generator.train()
@@ -315,6 +320,8 @@ for epoch in range(opt.n_epochs):
             fid.reset()
 
         print(summary_statistics)
+        d_losses.append(d_loss.item())
+        g_losses.append(g_loss.item())
 
 path_to_save_model = "./model/%s/" % (opt.dataset_sample)
 os.makedirs(path_to_save_model, exist_ok=True)
@@ -377,3 +384,17 @@ if minute > 60:
 second = diff % 60
 
 print("\nTime used: %d hours %d minutes %d seconds\n" % (hour, minute, second))
+
+pyplot.subplot(1, 2, 1)
+pyplot.plot(np.array(d_losses))
+pyplot.title("Discriminator Loss")
+pyplot.ylabel("Loss values")
+pyplot.xlabel("Iteration")
+
+pyplot.subplot(1, 2, 2)
+pyplot.plot(np.array(g_losses))
+pyplot.title("Generator Loss")
+pyplot.ylabel("Loss values")
+pyplot.xlabel("Iteration")
+
+pyplot.show()
