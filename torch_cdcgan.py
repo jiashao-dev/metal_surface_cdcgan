@@ -169,7 +169,7 @@ print("----------------------------\n")
 
 # Configure data loader
 dataset = datasets.ImageFolder(
-    "./data/metal_nuts/",
+    "./data/metal_surface/",
     transform=transforms.Compose(
         [
             transforms.Resize(opt.img_size),
