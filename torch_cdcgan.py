@@ -5,18 +5,14 @@ import numpy as np
 
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
-
-from torch.utils.data import DataLoader
 from torchvision import datasets
 
-from matplotlib import pyplot
-
+from torch.utils.data import DataLoader, Subset
+import torch.nn.functional as F
 import torch.nn as nn
 import torch
 
 from torchsummary import summary
-
-import torch.nn.functional as F
 
 from torchmetrics.image.fid import FrechetInceptionDistance as FID
 
@@ -30,8 +26,7 @@ print("         Parameter")
 print("----------------------------\n")
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--dataset_sample", type=str, default="metal_surface", help="dataset to be used")
-parser.add_argument("--n_epochs", type=int, default=1, help="number of epochs of training")
+parser.add_argument("--n_epochs", type=int, default=1000, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0004, help="adam: learning rate")
 parser.add_argument("--b1", type=float, default=0.52, help="adam: decay of first order momentum of gradient")
@@ -41,7 +36,6 @@ parser.add_argument("--n_classes", type=int, default=6, help="number of classes"
 parser.add_argument("--img_size", type=int, default=128, help="size of each image dimension")
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=500, help="interval between image sampling")
-parser.add_argument("--init_size", type=int, default=8, help="generator initial size")
 
 opt = parser.parse_args()
 print(opt)
@@ -53,7 +47,7 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
 
         self.l1 = nn.Sequential(
-            nn.Linear(opt.latent_dim + opt.n_classes, 512 * opt.init_size ** 2),
+            nn.Linear(opt.latent_dim + opt.n_classes, 512 * 8 ** 2),
         )
 
         self.conv_blocks = nn.Sequential(
@@ -78,7 +72,7 @@ class Generator(nn.Module):
     def forward(self, input, label):
         input = torch.concat([input, label], dim=1)
         out = self.l1(input)
-        out = out.view(out.shape[0], 512, opt.init_size, opt.init_size)
+        out = out.view(out.shape[0], 512, 8, 8)
         img = self.conv_blocks(out)
         return img
     
@@ -115,7 +109,7 @@ class Discriminator(nn.Module):
         )
 
         self.adv_layer = nn.Sequential(
-            nn.Linear(512 * opt.init_size ** 2, 1), 
+            nn.Linear(512 * 8 ** 2, 1), 
             nn.Sigmoid()
         )
 
@@ -175,7 +169,7 @@ print("----------------------------\n")
 
 # Configure data loader
 dataset = datasets.ImageFolder(
-    "./data/%s/" % (opt.dataset_sample),
+    "./data/metal_nuts/",
     transform=transforms.Compose(
         [
             transforms.Resize(opt.img_size),
@@ -222,7 +216,7 @@ print("          Training")
 print("----------------------------\n")
 
 current_time_str = time.strftime("%Y%m%d-%H%M%S")
-path_to_generate = "./generate/%s/%s" % (opt.dataset_sample, current_time_str)
+path_to_generate = "./generate/%s" % (current_time_str)
 
 os.makedirs(path_to_generate, exist_ok=True)
 
@@ -238,8 +232,6 @@ fixed_labels = F.one_hot(torch.arange(6, device="cuda"), 6)[fixed_labels].float(
 
 start = time.time()
 
-d_losses = []
-g_losses = []
 for epoch in range(opt.n_epochs):
     for i, (imgs, labels) in enumerate(dataloader):
         generator.train()
@@ -308,7 +300,9 @@ for epoch in range(opt.n_epochs):
         optimizer_generator.step()
 
 
-        summary_statistics = "[Epoch %04d/%04d] [Batch %02d/%02d] [D loss: %.4f] [G loss: %.4f]" % (epoch+1, opt.n_epochs, i+1, len(dataloader), d_loss.item(), g_loss.item())
+        summary_statistics = "[Epoch %04d/%04d] [Batch %02d/%02d] [D loss: %.4f] [G loss: %.4f]" % (
+            epoch+1, opt.n_epochs, i+1, len(dataloader), d_loss.item(), g_loss.item()
+        )
 
         batches_done = epoch * len(dataloader) + i
         if ((epoch+1 == opt.n_epochs and i+1 == len(dataloader)) or (batches_done % opt.sample_interval == 0)):
@@ -320,13 +314,11 @@ for epoch in range(opt.n_epochs):
             fid.reset()
 
         print(summary_statistics)
-        d_losses.append(d_loss.item())
-        g_losses.append(g_loss.item())
 
-path_to_save_model = "./model/%s/" % (opt.dataset_sample)
+path_to_save_model = "./model/"
 os.makedirs(path_to_save_model, exist_ok=True)
 
-torch.save(generator, "%s/%s.h5" % (path_to_save_model, current_time_str))
+torch.save(generator, "%s/%s.pth" % (path_to_save_model, current_time_str))
 print("----------------------------\n\n")
 
 
@@ -335,38 +327,56 @@ print("----------------------------")
 print("         Evaluation")
 print("----------------------------\n")
 
-path_to_save_result = "./result/%s/%s/" % (opt.dataset_sample, current_time_str)
+path_to_save_result = "./result/%s/" % (current_time_str)
 
-os.makedirs(path_to_save_result, exist_ok=True)
-
-batch_size = 9 * opt.n_classes
-
-dataloader = DataLoader(
-    dataset,
-    batch_size=batch_size,
-    shuffle=True
-)
-
+# generate images
 noise = torch.tensor(
-    np.random.normal(0, 1, (batch_size, opt.latent_dim)),
+    np.random.normal(0, 1, (len(dataset), opt.latent_dim)),
     dtype=torch.float32,
     device=device
 )
 
-real_imgs, real_labels = next(iter(dataloader))
-save_image(real_imgs, path_to_save_result + "real.png", nrow=9, normalize=True)
+labels = [i for i in range(6) for _ in range(276)]
+labels = F.one_hot(torch.arange(6, device='cuda'), 6)[labels].float()
 
-real_labels = F.one_hot(torch.arange(6, device='cuda'), 6)[real_labels].float()
-gen_imgs = generator(noise, real_labels)
+gen_imgs = generator(noise, labels)
 
-save_image(gen_imgs.data, path_to_save_result + "fake.png", nrow=9, normalize=True)
+fid_scores = []
 
-fid.update(interpolation(real_imgs), real=True)
-fid.update(interpolation(gen_imgs), real=False)
-result = fid.compute()
-fid.reset()
+for i, class_label in enumerate(["Crazing", "Inclusion", "Patches", "Pitted", "Rolled", "Scratches"]):
+    path_to_class = path_to_save_result + class_label + "/"
 
-print("FID Score: %.4f" % (result))
+    os.makedirs(path_to_class, exist_ok=True)
+
+    indices = [idx for idx, target in enumerate(dataset.targets) if target == i]
+
+    subset = Subset(dataset, indices)
+
+    dataloader = DataLoader(
+        subset,
+        batch_size=len(subset),
+        shuffle=True
+    )
+
+    # pick and save 9 original images of current label
+    real_imgs, _ = next(iter(dataloader))
+    save_image(real_imgs[:9], path_to_class + "real.png", nrow=9, normalize=True)
+    
+    # pick ans save 9 generate images of current label
+    current_class_gen_imgs = gen_imgs[(i * 276):(i * 276 + 276)]
+    save_image((current_class_gen_imgs.data)[:9], path_to_class + "fake.png", nrow=9, normalize=True)
+
+    # calculate FID score
+    fid.update(interpolation(real_imgs), real=True)
+    fid.update(interpolation(current_class_gen_imgs), real=False)
+    result = fid.compute()
+    fid.reset()
+
+    fid_scores.append(result)
+    print("FID Score (%s): %.4f" % (class_label, result))
+
+
+print("Overall FID Score: %.4f" % ((sum(fid_scores)/len(fid_scores))))
 
 print("----------------------------\n\n")
 
@@ -384,17 +394,3 @@ if minute > 60:
 second = diff % 60
 
 print("\nTime used: %d hours %d minutes %d seconds\n" % (hour, minute, second))
-
-pyplot.subplot(1, 2, 1)
-pyplot.plot(np.array(d_losses))
-pyplot.title("Discriminator Loss")
-pyplot.ylabel("Loss values")
-pyplot.xlabel("Iteration")
-
-pyplot.subplot(1, 2, 2)
-pyplot.plot(np.array(g_losses))
-pyplot.title("Generator Loss")
-pyplot.ylabel("Loss values")
-pyplot.xlabel("Iteration")
-
-pyplot.show()
